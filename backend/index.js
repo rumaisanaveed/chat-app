@@ -8,7 +8,7 @@ const Chat = require("./models/Chat");
 const app = express();
 
 // for parsing the requests
-app.use(express());
+app.use(express.json());
 
 // db connection
 connectDb();
@@ -18,7 +18,6 @@ const server = createServer(app);
 
 // create an io instance to use socket.io in the app
 const io = new Server(server, {
-  // so that we can send requests from any browser
   cors: {
     origin: "*",
   },
@@ -26,35 +25,43 @@ const io = new Server(server, {
 
 // an event which will occur when a user is connected to the web socket server
 io.on("connection", (socket) => {
-  console.log("Connected");
+  console.log(`Connected with the id ${socket.id}`);
 
-  const getAllMessages = async () => {
-    try {
-      // getting messages in the order (newest messages first)
-      const messages = await Chat.find().sort({ timeStamp: 1 }).exec();
-      // sending these messages to the specific client
-      socket.emit("chat", messages);
-    } catch (error) {
-      console.error(error);
+  // Handle joining a room
+  socket.on("join-room", (room) => {
+    if (room) {
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined room ${room}`);
     }
-  };
+  });
 
-  getAllMessages();
-
-  // add a new message to the db
-  socket.on("newMessage", async (message) => {
+  // Handle sending a new message
+  socket.on("newMessage", async (room, message) => {
     try {
       const newMessage = new Chat(message);
       await newMessage.save();
-      io.emit("message", message); // Emit to all clients
+
+      if (room) {
+        // Send the message to users in the specific room
+        io.to(room).emit("message", message);
+        console.log(`Message sent to room ${room}: ${message.text}`);
+      } else {
+        // Broadcast the message to all users
+        io.emit("message", message);
+        console.log(`Broadcast message: ${message.text}`);
+      }
     } catch (error) {
       console.error("Error saving message:", error);
     }
   });
 
-  // this event will happen when the user will be disconnected from the web socket server
+  socket.on("ping", (n) => {
+    console.log(n);
+  });
+
+  // Handle disconnection
   socket.on("disconnect", () => {
-    console.log("Disconnected");
+    console.log(`Disconnected socket id ${socket.id}`);
   });
 });
 
